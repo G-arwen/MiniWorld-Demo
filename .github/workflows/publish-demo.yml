@@ -1,0 +1,82 @@
+name: Publish verified Mac demo
+'on':
+  push:
+    branches: [main]
+    paths: [.github/workflows/publish-demo.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: miniworld-demo-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download public distribution files and verify the exact ZIP
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json, time, urllib.request, zipfile
+          BASE = "https://miniworld-learning-prototype.gengmin2020.chatgpt.site/"
+          MANIFEST = json.loads("{\"filename\":\"MiniWorld_Mac_Prototype.zip\",\"bytes\":131175626,\"sha256\":\"ae1621a6aee5223e6e67eecec1cb44870fbf115aaf8d944b408e8276ea18a726\",\"parts\":[{\"path\":\"downloads/miniworld-mac-00.bin\",\"bytes\":20971520,\"sha256\":\"3c1322074f94ba6bba8eda5c1b463bd6872b79029b1209c3474a6633f9d4ba91\"},{\"path\":\"downloads/miniworld-mac-01.bin\",\"bytes\":20971520,\"sha256\":\"2196627e738349223a51974ba50b600ddd5c95d912ced97d9b8f5a689147a11b\"},{\"path\":\"downloads/miniworld-mac-02.bin\",\"bytes\":20971520,\"sha256\":\"1a5e98e2b46ce0b47e0ce6b0d660add076e21618afd77f8aaf5243cb26b5616d\"},{\"path\":\"downloads/miniworld-mac-03.bin\",\"bytes\":20971520,\"sha256\":\"493874afeba87217c6bf2ec6700f7685f7b23c35ea9cad8ccf83811ba4011979\"},{\"path\":\"downloads/miniworld-mac-04.bin\",\"bytes\":20971520,\"sha256\":\"a44e357dce2183c4209704bf5d13b689b0ffc861e32fd64ae0bee624524a6c69\"},{\"path\":\"downloads/miniworld-mac-05.bin\",\"bytes\":20971520,\"sha256\":\"adc19723861ce20e3f524a68531493408d738eb97812e6bf002d7be559c94ae6\"},{\"path\":\"downloads/miniworld-mac-06.bin\",\"bytes\":5346506,\"sha256\":\"d285ce8ce97b04669f42bb4c7ff6de45c1683cd67d47c567b79bf3a87a6f7461\"}]}")
+          NOTES = "MiniWorld is an evolving English-learning game prototype. The first-episode demo uses a kitten-care and shopping story, picture-and-audio learning support and learning-hut activities.\n\n**Platform:** Apple silicon Mac, macOS 12 or later.\n**Open:** extract MiniWorld_Mac_Prototype.zip, then open MiniWorld_Reviewer.app in Finder.\nThe app is not Apple-notarized; use the project video and PDFs if your device restricts launch.\n\nThis portable review edition runs offline and contains no API key or microphone capture. It is separate from the owner's online-planning development build. The quick entry uses an isolated preset adult-review profile, not a child's record.\n\nThis is not the complete eight-chapter game, a child study or proof of learning gains. Product direction and content review are by the project owner; implementation and technical checks are assisted by Codex. Artwork is AI-assisted and voices are synthesized. Existing engine, font and voice-source notices are included in the app.\n\nProject presentation: https://miniworld-learning-prototype.gengmin2020.chatgpt.site/\n\nSHA-256: ae1621a6aee5223e6e67eecec1cb44870fbf115aaf8d944b408e8276ea18a726\n"
+          out = Path("release-files")
+          out.mkdir()
+          full = hashlib.sha256()
+          with (out / MANIFEST["filename"]).open("wb") as target:
+              for part in MANIFEST["parts"]:
+                  assert part["path"].startswith("downloads/miniworld-mac-")
+                  success = False
+                  for attempt in range(3):
+                      data = bytearray()
+                      try:
+                          req = urllib.request.Request(BASE + part["path"], headers={"User-Agent": "MiniWorld-verified-release"})
+                          with urllib.request.urlopen(req, timeout=45) as response:
+                              assert response.status == 200
+                              assert response.url.startswith(BASE), "Unexpected redirect"
+                              assert "text/html" not in response.headers.get("Content-Type", "")
+                              while block := response.read(256 * 1024):
+                                  data.extend(block)
+                                  assert len(data) <= part["bytes"], "Oversized part"
+                          assert len(data) == part["bytes"], "Incomplete part"
+                          assert hashlib.sha256(data).hexdigest() == part["sha256"], "Invalid part checksum"
+                          success = True
+                          break
+                      except Exception as error:
+                          print("Part", part["path"], "attempt", attempt + 1, "failed:", type(error).__name__)
+                          if attempt < 2:
+                              time.sleep(2)
+                  assert success, "Public source file unavailable or invalid; nothing will be published"
+                  target.write(data)
+                  full.update(data)
+                  print("Verified", part["path"])
+          assert (out / MANIFEST["filename"]).stat().st_size == MANIFEST["bytes"]
+          assert full.hexdigest() == MANIFEST["sha256"]
+          with zipfile.ZipFile(out / MANIFEST["filename"]) as archive:
+              assert archive.testzip() is None
+              entry = archive.getinfo("MiniWorld_Reviewer.app/Contents/MacOS/MiniWorldReviewer")
+              assert (entry.external_attr >> 16) & 0o111
+          (out / "SHA256SUMS.txt").write_text(MANIFEST["sha256"] + "  " + MANIFEST["filename"] + "\n")
+          Path("release-notes.txt").write_text(NOTES)
+          print("ZIP validated; ready for release upload")
+          PY
+      - name: Upload a verified draft and publish it
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: demo-v0.40
+          RELEASE_TITLE: MiniWorld Demo v0.40 - Offline Mac Review Build
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,body > existing-release.json 2>/dev/null; then
+            python3 -c 'import json; r=json.load(open("existing-release.json")); assert r["isDraft"], "Release already public"; assert "SHA-256: ae1621a6aee5223e6e67eecec1cb44870fbf115aaf8d944b408e8276ea18a726" in r["body"], "Unrecognized draft release"'
+          else
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$RELEASE_TITLE" --notes-file release-notes.txt --draft
+          fi
+          gh release upload "$RELEASE_TAG" release-files/MiniWorld_Mac_Prototype.zip release-files/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
