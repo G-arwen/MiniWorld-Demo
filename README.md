@@ -5,7 +5,7 @@ An evolving English-learning game prototype combining a town-life story, reviewe
 [Project presentation, poster and video](https://miniworld-learning-prototype.gengmin2020.chatgpt.site/)
 
 ## Playable demo
-The release package is for **Apple silicon Macs running macOS 12 or later**. Verified packages appear on the [Releases page](https://github.com/G-arwen/MiniWorld-Demo/releases).
+The release package is for **Apple silicon Macs running macOS 12 or later**. [Download the complete Mac demo ZIP](https://github.com/G-arwen/MiniWorld-Demo/releases/download/demo-v0.40/MiniWorld_Mac_Prototype.zip) · [Release notes and checksum](https://github.com/G-arwen/MiniWorld-Demo/releases/tag/demo-v0.40)
 
 Extract `MiniWorld_Mac_Prototype.zip`, then open `MiniWorld_Reviewer.app` in Finder. The app is not Apple-notarized; use the video and PDFs if your device restricts launch. Do not disable system protections.
 
