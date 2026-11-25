@@ -1,0 +1,35 @@
+name: Verify public demo download
+'on':
+  push:
+    branches: [main]
+    paths: [.github/workflows/verify-download.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Download anonymously and verify the released ZIP
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, urllib.request, zipfile
+          from pathlib import Path
+          url = "https://github.com/G-arwen/MiniWorld-Demo/releases/download/demo-v0.40/MiniWorld_Mac_Prototype.zip"
+          out = Path("public-download.zip")
+          sha = hashlib.sha256()
+          with urllib.request.urlopen(url, timeout=60) as response, out.open("wb") as f:
+              assert response.status == 200
+              assert "text/html" not in response.headers.get("Content-Type", "")
+              while block := response.read(1024 * 1024):
+                  sha.update(block)
+                  f.write(block)
+          assert out.stat().st_size == 131175626
+          assert sha.hexdigest() == "ae1621a6aee5223e6e67eecec1cb44870fbf115aaf8d944b408e8276ea18a726"
+          with zipfile.ZipFile(out) as z:
+              assert z.testzip() is None
+              z.getinfo("MiniWorld_Reviewer.app/Contents/MacOS/MiniWorldReviewer")
+          print("PASS: anonymous HTTPS download, 131175626 bytes, expected SHA256 and ZIP CRC")
+          PY
